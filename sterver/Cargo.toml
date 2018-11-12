@@ -1,0 +1,6 @@
+[package]
+name = "sterver"
+version = "0.1.0"
+authors = ["bstee615 <bstee615@students.bju.edu>"]
+
+[dependencies]
