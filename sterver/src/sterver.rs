@@ -4,6 +4,8 @@ use std::io::{Write, Read};
 use std::net::TcpStream;
 use request::HttpRequest;
 use std::vec::Vec;
+use std::fs::File;
+use std::path::Path;
 
 type TcpBuffer = Vec<u8>;
 
@@ -40,6 +42,17 @@ fn get_http_request(buf: &TcpBuffer) -> Option<HttpRequest> {
     }
 }
 
+fn get_file_contents(path: &String) -> [u8; 1024] {
+    let mut buf = [0; 1024];
+    let file = File::open(Path::new(&path));
+    match file {
+        Ok(mut f) => {f.read(& mut buf);},
+        _Error => println!("Error opening file {}", path),
+    }
+    
+    buf
+}
+
 fn write_response(mut stream: &TcpStream, req: &HttpRequest) -> io::Result<usize> {
     if !req.is_valid() {
         println!("{}", req);
@@ -47,7 +60,7 @@ fn write_response(mut stream: &TcpStream, req: &HttpRequest) -> io::Result<usize
     }
     else {
         println!("{}", req);
-        stream.write(b"Valid HTTP request.")
+        stream.write(&get_file_contents(&req.path))
     }
 }
 
