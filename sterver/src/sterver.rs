@@ -17,8 +17,49 @@ fn get_bytes(mut stream: &TcpStream) -> TcpBuffer {
         Ok(b) => println!("Got {bytes} bytes:", bytes=b),
         Err(_) => println!("Error"),
     }
-    
-    buf
+
+    let mut newline_pos = 0;
+    for i in 0..256 {
+        if buf[i] == '\n' as u8 {
+            newline_pos = i;
+            break;
+        }
+    }
+
+    if newline_pos == 256 {
+        buf
+    }
+    else {
+        buf[..newline_pos+1].to_vec()
+    }
+}
+
+fn header_terminated(buf: &TcpBuffer) -> bool {
+    let nl = '\n' as u8;
+    let len = buf.len();
+
+    if len < 2 {
+        false
+    }
+    else {
+        let mut ret = false;
+        for i in 1..buf.len() {
+            // println!("{}", buf[i]);
+            if buf[i] == nl && buf[i-1] == nl {
+                ret = true;
+            }
+        }
+        ret
+    }
+}
+
+fn get_bytes_until_blank_line(mut stream: &TcpStream) -> TcpBuffer {
+    let mut bigbuf: TcpBuffer = Vec::new();
+    while !header_terminated(&bigbuf) {
+        bigbuf.append(& mut get_bytes(&stream));
+    }
+
+    bigbuf
 }
 
 #[allow(dead_code)]
@@ -69,7 +110,7 @@ fn write_invalid_request(mut stream: &TcpStream) -> io::Result<usize> {
 }
 
 pub fn handle_client(stream: TcpStream) -> io::Result<usize> {
-    let buf: TcpBuffer = get_bytes(&stream);
+    let buf: TcpBuffer = get_bytes_until_blank_line(&stream);
     // print_buf(&buf);
 
     let req = get_http_request(&buf);
