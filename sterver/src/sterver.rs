@@ -1,65 +1,51 @@
 use std::io;
-use std::str;
-use std::io::{Write, Read};
+use std::io::{Write, Read, ErrorKind};
 use std::net::TcpStream;
 use request::HttpRequest;
 use std::vec::Vec;
-use std::fs::File;
+use std::fs;
 use std::path::Path;
 
+type TcpChunk = [u8; 256];
 type TcpBuffer = Vec<u8>;
 
-fn get_bytes(mut stream: &TcpStream) -> TcpBuffer {
-    let mut buf: TcpBuffer = vec![0; 256];
+fn get_chunk(mut stream: &TcpStream) -> Option<(TcpChunk, usize)> {
+    let mut buf = [0; 256];
 
     // Try to read from stream and return buf if successful
     match stream.read(&mut buf) {
-        Ok(b) => println!("Got {bytes} bytes:", bytes=b),
-        Err(_) => println!("Error"),
+        Ok(b) => Some((buf, b)),
+        Err(_) => {
+            println!("Error getting chunk");
+            None
+        },
     }
+}
 
-    let mut newline_pos = 0;
-    for i in 0..256 {
-        if buf[i] == '\n' as u8 {
-            newline_pos = i;
+fn get_bytes_until_blank_line(stream: &TcpStream) -> TcpBuffer {
+    let mut bigbuf: TcpBuffer = Vec::new();
+
+    // Loop until entire buffer is recieved
+    loop {
+        let (buf, size) = match get_chunk(&stream) {
+            Some(b) => b,
+            None => break,
+        };
+        bigbuf.extend_from_slice(&buf[..size]);
+        if header_terminated(&bigbuf) {
             break;
         }
-    }
+    };
 
-    if newline_pos == 256 {
-        buf
-    }
-    else {
-        buf[..newline_pos+1].to_vec()
-    }
+    bigbuf
 }
 
 fn header_terminated(buf: &TcpBuffer) -> bool {
-    let nl = '\n' as u8;
+    let cr = '\r' as u8;
+    let lf = '\n' as u8;
     let len = buf.len();
 
-    if len < 2 {
-        false
-    }
-    else {
-        let mut ret = false;
-        for i in 1..buf.len() {
-            // println!("{}", buf[i]);
-            if buf[i] == nl && buf[i-1] == nl {
-                ret = true;
-            }
-        }
-        ret
-    }
-}
-
-fn get_bytes_until_blank_line(mut stream: &TcpStream) -> TcpBuffer {
-    let mut bigbuf: TcpBuffer = Vec::new();
-    while !header_terminated(&bigbuf) {
-        bigbuf.append(& mut get_bytes(&stream));
-    }
-
-    bigbuf
+    len >= 4 && buf[len-4..len] == [cr, lf, cr, lf]
 }
 
 #[allow(dead_code)]
@@ -73,49 +59,60 @@ fn print_buf(buf: &TcpBuffer) {
     println!();
 }
 
-fn get_http_request(buf: &TcpBuffer) -> Option<HttpRequest> {
-    match str::from_utf8(&buf) {
-        Ok(s) => HttpRequest::from_str(s),
-        Err(_) => {
-            println!("Error decoding bytes.");
-            None
-        }
+fn get_file_contents(path: &String) -> Result<String, String> {
+    match fs::read_to_string(Path::new(&path[1..].to_string())) {
+        Ok(v) => Ok(v),
+        Err(_) => Err(format!("Error getting file contents of {}", path)),
     }
 }
 
-fn get_file_contents(path: &String) -> [u8; 1024] {
-    let mut buf = [0; 1024];
-    let file = File::open(Path::new(&path));
-    match file {
-        Ok(mut f) => {f.read(& mut buf);},
-        _Error => println!("Error opening file {}", path),
-    }
-    
-    buf
+fn http_response_from_contents(contents: String) -> String {
+    format!("HTTP/1.1\t200\tOK\r\n\r\n{}", contents)
 }
 
-fn write_response(mut stream: &TcpStream, req: &HttpRequest) -> io::Result<usize> {
+macro_rules! http_response_from_contents {
+    ( $path:expr ) => {
+        http_response_from_contents(match get_file_contents($path) {
+            Ok(s) => s,
+            Err(_) => http_response_bad_request!(),
+        })
+    };
+}
+
+macro_rules! http_response_bad_request {
+    ( ) => {
+        String::from("HTTP/1.1 400 Bad Request\r\n\r\n")
+    };
+}
+
+macro_rules! http_response_not_found {
+    ( ) => {
+        String::from("HTTP/1.1 404 Not Found\r\n\r\n")
+    };
+}
+
+fn get_http_response(req: &HttpRequest) -> String {
+    println!("{}", req);
+
     if !req.is_valid() {
-        println!("{}", req);
-        write_invalid_request(stream)
+        http_response_not_found!()
     }
     else {
-        println!("{}", req);
-        stream.write(&get_file_contents(&req.path))
+        // println!("{}", http_response_from_contents!(&req.path));
+        http_response_from_contents!(&req.path)
     }
 }
 
-fn write_invalid_request(mut stream: &TcpStream) -> io::Result<usize> {
-    stream.write(b"Invalid HTTP request.")
-}
-
-pub fn handle_client(stream: TcpStream) -> io::Result<usize> {
+pub fn handle_client(stream: &mut TcpStream) -> io::Result<usize> {
     let buf: TcpBuffer = get_bytes_until_blank_line(&stream);
-    // print_buf(&buf);
+    let message = match String::from_utf8(buf) {
+        Ok(s) => s,
+        Err(msg) => return Err(io::Error::new(ErrorKind::InvalidData, msg)),
+    };
 
-    let req = get_http_request(&buf);
+    let req = HttpRequest::from_str(&message);
     match req {
-        Some(unpacked_req) => write_response(&stream, &unpacked_req),
-        None => write_invalid_request(&stream),
+        Some(unpacked_req) => stream.write(get_http_response(&unpacked_req).as_bytes()),
+        None => return Err(io::Error::new(ErrorKind::InvalidData, "Error constructing HTTP request object")),
     }
 }

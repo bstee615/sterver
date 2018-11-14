@@ -12,7 +12,7 @@ fn main() -> io::Result<()> {
 
     println!("Accepting connections at address {addr}. Press Ctrl+C to quit.", addr=address);
     for stream in listener.incoming() {
-        let bytes = handle_client(stream?)?;
+        let bytes = handle_client(&mut stream?)?;
         println!("Wrote {numbytes} bytes to {addr}", numbytes=bytes, addr=address);
     }
     Ok(())
