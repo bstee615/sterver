@@ -26,7 +26,7 @@ impl From<String> for HttpMethod {
 #[derive(Debug)]
 pub struct HttpRequest {
     method: HttpMethod,
-    path: String,
+    pub path: String,
     version: String,
 }
 
