@@ -59,8 +59,8 @@ fn print_buf(buf: &TcpBuffer) {
     println!();
 }
 
-fn get_file_contents(path: &String) -> Result<String, ErrorKind> {
-    match fs::read_to_string(Path::new(&path[1..].to_string())) {
+fn get_file_contents(path: &String, root: &String) -> Result<String, ErrorKind> {
+    match fs::read_to_string(Path::new(&format!("{}{}", root, path))) {
         Ok(v) => Ok(v),
         Err(e) => Err(e.kind()),
     }
@@ -70,7 +70,7 @@ fn http_response_status_line(code: i32, reason: &'static str) -> String {
     format!("HTTP/1.1 {} {}\r\n\r\n", code, reason)
 }
 
-fn get_http_response(req: &HttpRequest) -> String {
+fn get_http_response(req: &HttpRequest, root: &String) -> String {
     println!("{}", req);
 
     if !req.is_valid() {
@@ -78,7 +78,7 @@ fn get_http_response(req: &HttpRequest) -> String {
     }
     else {
         // println!("{}", http_response_from_contents!(&req.path));
-        match get_file_contents(&req.path) {
+        match get_file_contents(&req.path, &root) {
             Ok(response) => format!("{}{}", http_response_status_line(200, "OK"), response),
             Err(ErrorKind::NotFound) => http_response_status_line(404, "Not Found"),
             Err(_) => http_response_status_line(500, "Internal Server Error"),
@@ -86,7 +86,7 @@ fn get_http_response(req: &HttpRequest) -> String {
     }
 }
 
-pub fn handle_client(stream: &mut TcpStream) -> io::Result<usize> {
+pub fn handle_client(stream: &mut TcpStream, root: &String) -> io::Result<usize> {
     let buf: TcpBuffer = get_bytes_until_blank_line(&stream);
     let message = match String::from_utf8(buf) {
         Ok(s) => s,
@@ -95,7 +95,7 @@ pub fn handle_client(stream: &mut TcpStream) -> io::Result<usize> {
 
     let req = HttpRequest::from_str(&message);
     match req {
-        Some(unpacked_req) => stream.write(get_http_response(&unpacked_req).as_bytes()),
+        Some(unpacked_req) => stream.write(get_http_response(&unpacked_req, &root).as_bytes()),
         None => return Err(io::Error::new(ErrorKind::InvalidData, "Error constructing HTTP request object")),
     }
 }
