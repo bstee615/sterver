@@ -66,47 +66,23 @@ fn get_file_contents(path: &String) -> Result<String, ErrorKind> {
     }
 }
 
-fn http_response_from_contents(contents: String) -> String {
-    format!("HTTP/1.1\t200\tOK\r\n\r\n{}", contents)
-}
-
-macro_rules! http_response_from_contents {
-    ( $path:expr ) => {
-        http_response_from_contents(match get_file_contents($path) {
-            Ok(s) => s,
-            Err(ErrorKind::NotFound) => http_response_not_found!(),
-            Err(_) => http_response_server_error!(),
-        })
-    };
-}
-
-macro_rules! http_response_server_error {
-    ( ) => {
-        String::from("HTTP/1.1 500 Internal Server Error\r\n\r\n")
-    };
-}
-
-macro_rules! http_response_bad_request {
-    ( ) => {
-        String::from("HTTP/1.1 400 Bad Request\r\n\r\n")
-    };
-}
-
-macro_rules! http_response_not_found {
-    ( ) => {
-        String::from("HTTP/1.1 404 Not Found\r\n\r\n")
-    };
+fn http_response_status_line(code: i32, reason: &'static str) -> String {
+    format!("HTTP/1.1 {} {}\r\n\r\n", code, reason)
 }
 
 fn get_http_response(req: &HttpRequest) -> String {
     println!("{}", req);
 
     if !req.is_valid() {
-        http_response_bad_request!()
+        http_response_status_line(400, "Bad Request")
     }
     else {
         // println!("{}", http_response_from_contents!(&req.path));
-        http_response_from_contents!(&req.path)
+        match get_file_contents(&req.path) {
+            Ok(response) => format!("{}{}", http_response_status_line(200, "OK"), response),
+            Err(ErrorKind::NotFound) => http_response_status_line(404, "Not Found"),
+            Err(_) => http_response_status_line(500, "Internal Server Error"),
+        }
     }
 }
 
