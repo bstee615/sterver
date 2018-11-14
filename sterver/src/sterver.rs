@@ -59,10 +59,10 @@ fn print_buf(buf: &TcpBuffer) {
     println!();
 }
 
-fn get_file_contents(path: &String) -> Result<String, String> {
+fn get_file_contents(path: &String) -> Result<String, ErrorKind> {
     match fs::read_to_string(Path::new(&path[1..].to_string())) {
         Ok(v) => Ok(v),
-        Err(_) => Err(format!("Error getting file contents of {}", path)),
+        Err(e) => Err(e.kind()),
     }
 }
 
@@ -74,8 +74,15 @@ macro_rules! http_response_from_contents {
     ( $path:expr ) => {
         http_response_from_contents(match get_file_contents($path) {
             Ok(s) => s,
-            Err(_) => http_response_bad_request!(),
+            Err(ErrorKind::NotFound) => http_response_not_found!(),
+            Err(_) => http_response_server_error!(),
         })
+    };
+}
+
+macro_rules! http_response_server_error {
+    ( ) => {
+        String::from("HTTP/1.1 500 Internal Server Error\r\n\r\n")
     };
 }
 
@@ -95,7 +102,7 @@ fn get_http_response(req: &HttpRequest) -> String {
     println!("{}", req);
 
     if !req.is_valid() {
-        http_response_not_found!()
+        http_response_bad_request!()
     }
     else {
         // println!("{}", http_response_from_contents!(&req.path));
